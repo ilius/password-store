@@ -367,16 +367,18 @@ cmd_init() {
 
 cmd_show() {
 	local opts selected_line clip=0 qrcode=0
-	opts="$($GETOPT -o q::c:: -l qrcode::,clip:: -n "$PROGRAM" -- "$@")"
+	local color=0
+	opts="$($GETOPT -o q::c:: -l qrcode::,clip::,color -n "$PROGRAM" -- "$@")"
 	local err=$?
 	eval set -- "$opts"
 	while true; do case $1 in
 		-q|--qrcode) qrcode=1; selected_line="${2:-1}"; shift 2 ;;
 		-c|--clip) clip=1; selected_line="${2:-1}"; shift 2 ;;
+		--color) color=1; shift 1 ;;
 		--) shift; break ;;
 	esac done
 
-	[[ $err -ne 0 || ( $qrcode -eq 1 && $clip -eq 1 ) ]] && die "Usage: $PROGRAM $COMMAND [--clip[=line-number],-c[line-number]] [--qrcode[=line-number],-q[line-number]] [pass-name]"
+	[[ $err -ne 0 || ( $qrcode -eq 1 && $clip -eq 1 ) ]] && die "Usage: $PROGRAM $COMMAND [--clip[=line-number],-c[line-number]] [--qrcode[=line-number],-q[line-number]] [--color] [pass-name]"
 
 	local pass
 	local path="$1"
@@ -385,7 +387,16 @@ cmd_show() {
 	if [[ -f $passfile ]]; then
 		if [[ $clip -eq 0 && $qrcode -eq 0 ]]; then
 			pass="$($GPG -d "${GPG_OPTS[@]}" "$passfile" | $BASE64)" || exit $?
-			echo "$pass" | $BASE64 -d
+			if [[ $color -eq 1 ]] ; then
+				if [ -z "$PASS_SHOW_NUM_COLOR" ] ; then
+					export PASS_SHOW_NUM_COLOR="[38;5;014m"
+				fi
+				ppass="$( echo "$pass" | $BASE64 -d)"
+				echo $ppass | python3 -c 'import sys, os, re
+print(re.sub(r"([0-9])","\x1b%s\\1\x1b[0m"%os.getenv("PASS_SHOW_NUM_COLOR"),sys.stdin.read().rstrip()))'
+			else
+				echo "$pass" | $BASE64 -d
+			fi
 		else
 			[[ $selected_line =~ ^[0-9]+$ ]] || die "Clip location '$selected_line' is not a number."
 			pass="$($GPG -d "${GPG_OPTS[@]}" "$passfile" | tail -n +${selected_line} | head -n 1)" || exit $?
